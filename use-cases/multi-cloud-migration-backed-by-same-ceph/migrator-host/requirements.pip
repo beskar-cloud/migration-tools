@@ -1,0 +1,4 @@
+xmltodict==0.13.0
+paramiko
+pylint
+ipython
