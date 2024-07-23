@@ -11,6 +11,8 @@ import openstack
 from keystoneauth1.identity import v3
 from keystoneauth1 import session
 
+BOOLEAN_CHOICES = ["True", "true", "False", "false"]
+
 def wait_for_keypress(msg="Press Enter to continue..."):
     """ wait for enter keypress """
     return input("Press Enter to continue...")
@@ -33,7 +35,7 @@ def trim_dict(dict_data, allowed_keys=None, denied_keys=None):
 
 def executed_as_admin_user_in_ci():
     """ identity the script user within CI pipeline """
-    return os.environ.get('GITLAB_USER_LOGIN') in ('246254', '252651', 'Jan.Krystof', 'moravcova', '469240', 'Josef.Nemec', '247801')
+    return os.environ.get('GITLAB_USER_LOGIN') in ('246254', '252651', 'Jan.Krystof', 'moravcova', '469240', 'Josef.Nemec', '247801', '253466', '252985')
 
 def executed_in_ci():
     """ detect CI environment """
@@ -87,6 +89,10 @@ def normalize_table_data(data):
     for i_data_field in data:
         int_list.append(normalize_table_data_field(i_data_field['field']))
     return int_list
+
+def get_dst_secgroup_name(args, name=""):
+    """ translate original secgroup name to destination one """
+    return f"{args.destination_secgroup_name_prefix}{name}"
 
 def get_dst_resource_name(args, name=""):
     """ translate original name to destination one """
@@ -206,12 +212,12 @@ def assert_entity_ownership(entities, project):
 
 
 
-def log_or_assert(args, msg, condition, trace_details=None):
+def log_or_assert(args, msg, condition, trace_details=None, msg_guidance=''):
     """ log, assert, dump state """
     if not condition:
         with open(args.exception_trace_file, "w", encoding="utf-8") as file:
             file.write(f"{msg}\n{pprint.pformat(trace_details)}\n\n{locals()}\n")
-    assert condition, msg
+    assert condition, "\n".join([msg, msg_guidance]) if msg_guidance else msg
     args.logger.info(msg)
 
 
@@ -226,7 +232,7 @@ def wait_for_ostack_server_status(ostack_connection, server_name_or_id, server_s
         int_server_status = ostack_connection.compute.find_server(int_server.id).status
         if int_server_status == server_status:
             break
-        time.sleep(5)
+        time.sleep(10)
 
     return int_server_status
 
@@ -241,24 +247,7 @@ def wait_for_ostack_volume_status(ostack_connection, volume_name_or_id, volume_s
         int_volume_status = ostack_connection.block_storage.find_volume(int_volume.id).status
         if int_volume_status == volume_status:
             break
-        time.sleep(5)
+        time.sleep(10)
 
 
     return int_volume_status
-
-def server_detect_floating_address(server):
-    """ return True if server has attached floating IP address otherwise False """
-    for _, i_ip_details in server.addresses.items():
-        for i_ip_detail in i_ip_details:
-            if str(i_ip_detail.get('version')) == '4' and i_ip_detail.get('OS-EXT-IPS:type') == 'floating':
-                return True
-    return False
-
-def get_server_floating_ip_port(ostack_connection, server):
-    """ set server's port where to put FIP, otherwise None """
-    for i_port in ostack_connection.network.ports(device_id=server.id):
-        for i_port_ip in i_port.fixed_ips:
-            for i_ip_prefix in ('192.', '10.', '172.'):
-                if str(i_port_ip.get('ip_address')).startswith(i_ip_prefix):
-                    return i_port
-    return None

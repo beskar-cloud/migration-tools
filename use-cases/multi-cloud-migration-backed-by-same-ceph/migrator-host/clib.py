@@ -79,7 +79,8 @@ def ceph_rbd_image_clone(args, src_pool_name, src_rbd_image_name, src_rbd_image_
 def ceph_rbd_image_copy(args, src_pool_name, src_rbd_image_name, dst_pool_name, dst_rbd_image_name):
     """ copy RBD image {src_pool_name}/{src_rbd_image_name} -> {dst_pool_name}/{dst_rbd_image_name}"""
     ceph_client_name = get_ceph_client_name(args, src_pool_name, dst_pool_name)
-    script_path = os.path.join(args.ceph_migrator_host_base_dir, 'ceph-rbd-image-copy.sh')
+    script_path = os.path.join(args.ceph_migrator_host_base_dir,
+                               'ceph-rbd-image-deepcopy.sh' if args.migrate_volume_snapshots else 'ceph-rbd-image-copy.sh')
     cmd = f"CEPH_USER={ceph_client_name} {script_path} {src_pool_name} {src_rbd_image_name} {dst_pool_name} {dst_rbd_image_name}"
     stdout, stderr, ecode = remote_cmd_exec(args.ceph_migrator_host,
                                             args.ceph_migrator_user,

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# ceph-rbd-image-copy.sh <ceph-src-pool-name> <ostack-src-volume-id> <ceph-dst-pool-name> <dst-ceph-rbd-image-name>
+# ceph-rbd-image-deepcopy.sh <ceph-src-pool-name> <ostack-src-volume-id> <ceph-dst-pool-name> <dst-ceph-rbd-image-name>
 # returns 0 if RBD copy suceeds
 
 set -eo pipefail
@@ -24,5 +24,4 @@ test "$#" == "4"
 
 SRC_RBD_IMAGE="$(rbd --conf="${CEPH_CONFIG}" --name "${CEPH_USER}" --keyring=${CEPH_KEYRING} ls ${CEPH_SRC_POOL} | grep -E "^(volume.)?${OSTACK_SRC_VOLUME_ID}$")"
 
-rbd --conf="${CEPH_CONFIG}" --name "${CEPH_USER}" --keyring=${CEPH_KEYRING} cp ${CEPH_SRC_POOL}/${SRC_RBD_IMAGE} ${CEPH_DST_POOL}/${CEPH_DST_RBD_IMAGE_NAME}
-
+rbd --conf="${CEPH_CONFIG}" --name "${CEPH_USER}" --keyring=${CEPH_KEYRING} deep cp ${CEPH_SRC_POOL}/${SRC_RBD_IMAGE} ${CEPH_DST_POOL}/${CEPH_DST_RBD_IMAGE_NAME}
