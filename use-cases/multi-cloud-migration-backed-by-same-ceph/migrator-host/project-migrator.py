@@ -30,12 +30,12 @@ Usage example:
 
 import argparse
 import logging
-import pprint
 import sys
 
-import lib
 import clib
+import lib
 import olib
+
 
 def main(args):
     """ main project migration loop """
@@ -72,31 +72,25 @@ def main(args):
                           "B.14 Cloud group project migration is executed by authorized person (cloud/openstack team member).",
                           lib.executed_as_admin_user_in_ci())
 
-
-    # check user context switching & quotas
     source_project_conn = lib.get_ostack_connection(source_migrator_openrc | {'OS_PROJECT_NAME': source_project.name})
-    #source_project_quotas = source_project_conn.get_compute_quotas(source_project.id)
-    #lib.log_or_assert(args, f"C.1 Context switching to source OpenStack cloud project succeeded (id:{source_project.id})",
-    #              source_project_quotas and source_project_quotas.id == source_project.id)
-
     destination_project_conn = lib.get_ostack_connection(destination_migrator_openrc | {'OS_PROJECT_NAME': destination_project.name})
-    #destination_project_quotas = destination_project_conn.get_compute_quotas(destination_project.id)
-    #lib.log_or_assert(args, f"C.2 Context switching to destination OpenStack cloud project succeeded (id:{destination_project.id})",
-    #              destination_project_quotas and destination_project_quotas.id == destination_project.id)
+
+    args.logger.info("C.01 Source and destination project quotas comparison:")
+    olib.compare_and_log_projects_quotas(args, "C.01", source_project_conn, source_project.id, destination_project_conn, destination_project.id)
 
     # connect to migrator node
-    reply_stdout, reply_stderr, reply_ecode = lib.remote_cmd_exec(args.ceph_migrator_host, args.ceph_migrator_user,
-                                                                  args.ceph_migrator_sshkeyfile.name, 'uname -a')
+    reply_stdout, _, reply_ecode = lib.remote_cmd_exec(args.ceph_migrator_host, args.ceph_migrator_user,
+                                                       args.ceph_migrator_sshkeyfile.name, 'uname -a')
     lib.log_or_assert(args, "D.01 Migrator host is reachable", 'Linux' in reply_stdout and reply_ecode == 0)
 
-    reply_stdout, reply_stderr, reply_ecode = lib.remote_cmd_exec(args.ceph_migrator_host, args.ceph_migrator_user,
-                                                                  args.ceph_migrator_sshkeyfile.name,
-                                                                  '/root/migrator/ceph-accessible.sh')
+    reply_stdout, _, reply_ecode = lib.remote_cmd_exec(args.ceph_migrator_host, args.ceph_migrator_user,
+                                                       args.ceph_migrator_sshkeyfile.name,
+                                                       '/root/migrator/ceph-accessible.sh')
     lib.log_or_assert(args, "D.02 Ceph is available from the migrator host", reply_ecode == 0)
 
     source_rbd_images = {args.source_ceph_ephemeral_pool_name: None,
                          args.source_ceph_cinder_pool_name: None}
-    for i_pool_name in source_rbd_images.keys():
+    for i_pool_name in source_rbd_images:
         source_rbd_images[i_pool_name] = clib.ceph_rbd_images_list(args, i_pool_name)
         lib.log_or_assert(args, f"D.03 Source cloud RBD images are received ({i_pool_name}).", source_rbd_images[i_pool_name])
 
@@ -105,18 +99,18 @@ def main(args):
 
     source_objstore_containers = olib.get_ostack_objstore_containers(source_project_conn)
     if source_objstore_containers:
-        args.logger.warning("D.10 Source OpenStack cloud project contains some object-store containers. " \
+        args.logger.warning("D.10 Source OpenStack cloud project contains some object-store containers. "
                             f"Manual objstore data copy is required. Detected containers:{source_objstore_containers}")
     else:
         args.logger.info("D.10 Source OpenStack cloud project has no object-store containers")
 
     # get source/destination entities in the project
-    source_project_servers = lib.get_ostack_project_servers(source_project_conn, source_project)
+    source_project_servers = lib.get_ostack_project_servers(source_project_conn)
     args.logger.info("E.01 Source OpenStack cloud servers received")
     lib.assert_entity_ownership(source_project_servers, source_project)
     args.logger.info(f"E.02 Source OpenStack cloud project has {len(source_project_servers)} servers.")
 
-    destination_project_servers = lib.get_ostack_project_servers(destination_project_conn, destination_project)
+    destination_project_servers = lib.get_ostack_project_servers(destination_project_conn)
     args.logger.info("E.10 Destination OpenStack cloud servers received")
     lib.assert_entity_ownership(destination_project_servers, destination_project)
     args.logger.info(f"E.11 Destination OpenStack cloud project has {len(destination_project_servers)} servers.")
@@ -133,7 +127,7 @@ def main(args):
     if args.dry_run:
         args.logger.info("Exiting before first cloud modification operation as in dry-run mode.")
         if args.debugging:
-            import IPython # on-purpose lazy import
+            import IPython  # on-purpose lazy import
             IPython.embed()
         return
 
@@ -143,7 +137,7 @@ def main(args):
     args.logger.info("E.40 Destination OpenStack project security groups duplicated")
 
     args.logger.info("F.00 Main looping started")
-    args.logger.info(f"F.00 Source VM servers: {[ i_source_server.name for i_source_server in source_project_servers]}")
+    args.logger.info(f"F.00 Source VM servers: {[i_source_server.name for i_source_server in source_project_servers]}")
     for i_source_server in source_project_servers:
         i_source_server_detail = source_project_conn.compute.find_server(i_source_server.id)
         i_source_server_fip_properties = olib.get_server_floating_ip_properties(i_source_server_detail)
@@ -161,11 +155,11 @@ def main(args):
             args.logger.info(f"F.01 server migration skipped - name:{i_source_server_detail.name} as equivalent VM exists in destination cloud (name: {i_destination_server_detail.name})")
             continue
 
-        args.logger.info(f"F.01 server migration started - name:{i_source_server_detail.name}, id:{i_source_server_detail.id}, " \
-                         f"keypair: {i_source_server_detail.key_name}, flavor: {i_source_server_detail.flavor}, " \
-                         f"sec-groups:{i_source_server_detail.security_groups}, root_device_name: {i_source_server_detail.root_device_name}, " \
-                         f"block_device_mapping: {i_source_server_detail.block_device_mapping}, " \
-                         f"attached-volumes: {i_source_server_detail.attached_volumes}" \
+        args.logger.info(f"F.01 server migration started - name:{i_source_server_detail.name}, id:{i_source_server_detail.id}, "
+                         f"keypair: {i_source_server_detail.key_name}, flavor: {i_source_server_detail.flavor}, "
+                         f"sec-groups:{i_source_server_detail.security_groups}, root_device_name: {i_source_server_detail.root_device_name}, "
+                         f"block_device_mapping: {i_source_server_detail.block_device_mapping}, "
+                         f"attached-volumes: {i_source_server_detail.attached_volumes}"
                          f"addresses: {i_source_server_detail.addresses}")
 
         # network/subnet/router detection & creation
@@ -211,19 +205,26 @@ def main(args):
             lib.log_or_assert(args, f"F.33 Source OpenStack VM server (name:{i_source_server_detail.name}) stopped (reached SHUTOFF state)",
                               lib.wait_for_ostack_server_status(source_project_conn, i_source_server.id, 'SHUTOFF') == "SHUTOFF")
 
-        # volume migration (browse i_server_block_device_mappings)
-        for i_server_block_device_mapping in i_server_block_device_mappings:
-            clib.migrate_rbd_image(args, i_server_block_device_mapping)
+        restore_source_server_status_args = {
+            'args': args,
+            'source_project_conn': source_project_conn,
+            'source_server_detail': i_source_server_detail,
+            'source_server': i_source_server
+        }
 
-        # start server in source cloud (if necessary), wait for VM being back in the same state as at the beginning
-        if i_source_server_detail.status != source_project_conn.compute.find_server(i_source_server.id).status and \
-           not args.source_servers_left_shutoff:
-            if i_source_server_detail.status == 'ACTIVE':
-                source_project_conn.compute.start_server(i_source_server_detail)
-                args.logger.info(f"F.34 Source OpenStack VM server (name:{i_source_server_detail.name}) requested to start")
-            else:
-                args.logger.warning(f"F.34 Source OpenStack VM server (name:{i_source_server_detail.name}) is not in expected state, " \
-                                    f"but migrator does not know how to move to {i_source_server_detail.status} state")
+        post_rbd_snap_callback=None
+        if args.block_storage_volume_migration_mode == BLOCK_STORAGE_VOLUME_MIGRATION_MODE_VMON_AFTER_SNAP:
+            # start server in source cloud (if necessary)
+            post_rbd_snap_callback = {
+                'func': olib.restore_source_server_status,
+                'args': restore_source_server_status_args
+            }
+
+        # volumes migration (browse i_server_block_device_mappings)
+        clib.migrate_rbd_images(args, i_server_block_device_mappings, post_rbd_snap_callback)
+
+        # start server in source cloud (if necessary)
+        olib.restore_source_server_status(**restore_source_server_status_args)
 
         # start server in destination cloud
         i_destination_server = olib.create_dst_server(args,
@@ -236,8 +237,9 @@ def main(args):
                                                       i_destination_server_network_addresses)
 
         # add security groups to the destination server (if missing)
-        for i_destination_server_security_group_id, i_destination_server_security_group_name in {(i_destination_server_security_group.id, i_destination_server_security_group.name) for i_destination_server_security_group in i_destination_server_security_groups}:
-            if {'name': i_destination_server_security_group_name } not in i_destination_server.security_groups:
+        dst_security_groups = {(i_destination_server_security_group.id, i_destination_server_security_group.name) for i_destination_server_security_group in i_destination_server_security_groups}
+        for i_destination_server_security_group_id, i_destination_server_security_group_name in dst_security_groups:
+            if {'name': i_destination_server_security_group_name} not in i_destination_server.security_groups:
                 destination_project_conn.add_server_security_groups(i_destination_server.id, i_destination_server_security_group_id)
         if args.migrate_fip_addresses and i_source_server_fip_properties:
             # add FIP as source VM has it
@@ -259,18 +261,18 @@ def main(args):
         args.logger.info(f"F.41 Source OpenStack server name:{i_source_server_detail.name} migrated into destination one name:{i_destination_server.name} id:{i_destination_server.id}")
 
         if i_source_server_detail.status != source_project_conn.compute.find_server(i_source_server.id).status and \
-           not args.source_servers_left_shutoff:
+                not args.source_servers_left_shutoff:
             if i_source_server_detail.status == 'ACTIVE':
                 if lib.wait_for_ostack_server_status(source_project_conn, i_source_server.id, i_source_server_detail.status) != i_source_server_detail.status:
                     args.logger.warning(f"F.42 Source OpenStack VM server has not become {i_source_server_detail.status} yet, trying again...")
                     source_project_conn.compute.start_server(i_source_server_detail)
                     args.logger.info(f"F.42 Source OpenStack VM server (name:{i_source_server_detail.name}) requested to start again")
                 if lib.wait_for_ostack_server_status(source_project_conn, i_source_server.id, i_source_server_detail.status) != i_source_server_detail.status:
-                    args.logger.error(f"F.42 Source OpenStack VM server (name:{i_source_server_detail.name}) has not become " \
-                                      f"{i_source_server_detail.status} yet (after second start). " \
+                    args.logger.error(f"F.42 Source OpenStack VM server (name:{i_source_server_detail.name}) has not become "
+                                      f"{i_source_server_detail.status} yet (after second start). "
                                       f"This situation is no longer asserted but needs manual admin inspection.")
             else:
-                args.logger.error(f"F.42 Source OpenStack VM server (name:{i_source_server_detail.name}) is not in proper state, " \
+                args.logger.error(f"F.42 Source OpenStack VM server (name:{i_source_server_detail.name}) is not in proper state, "
                                   f"but migrator does not know how to move to {i_source_server_detail.status} state")
         else:
             args.logger.info(f"F.42 Source OpenStack VM server (name:{i_source_server_detail.name}) back in expected state {i_source_server_detail.status}.")
@@ -284,8 +286,8 @@ def main(args):
                 args.logger.info(f"H.01 Source volume migration skipped as does not exist (name:{i_source_volume_name})")
                 continue
             if i_source_volume.status != 'available':
-                args.logger.info(f"H.02 Source volume migration skipped as it is not in state available (name:{i_source_volume_name}, state:{i_source_volume.status}). " \
-                                "Note in-use volumes are being migrated in VM server migration part.")
+                args.logger.info(f"H.02 Source volume migration skipped as it is not in state available (name:{i_source_volume_name}, state:{i_source_volume.status}). "
+                                 "Note in-use volumes are being migrated in VM server migration part.")
                 continue
 
             i_dst_volume = destination_project_conn.block_storage.create_volume(name=lib.get_dst_resource_name(args, i_source_volume.name),
@@ -294,21 +296,24 @@ def main(args):
                                                                                                                       i_source_volume.description,
                                                                                                                       i_source_volume.id))
             lib.log_or_assert(args,
-                            f"H.03 Destination OpenStack volume created (name:{i_dst_volume.name}, id:{i_dst_volume.id})", i_dst_volume)
+                              f"H.03 Destination OpenStack volume created (name:{i_dst_volume.name}, id:{i_dst_volume.id})", i_dst_volume)
             i_dst_volume_status = lib.wait_for_ostack_volume_status(destination_project_conn, i_dst_volume.id, 'available')
             lib.log_or_assert(args,
-                            f"H.04 Destination OpenStack volume available (name:{i_dst_volume.name}, id:{i_dst_volume.id})",
-                            i_dst_volume_status == 'available')
-            i_volume_mapping = {'source':      {'ceph_pool_name': args.source_ceph_cinder_pool_name,
-                                                'ceph_rbd_image_name': i_source_volume.id},
+                              f"H.04 Destination OpenStack volume available (name:{i_dst_volume.name}, id:{i_dst_volume.id})",
+                              i_dst_volume_status == 'available')
+            i_volume_mapping = {'source': {'ceph_pool_name': args.source_ceph_cinder_pool_name,
+                                           'ceph_rbd_image_name': i_source_volume.id},
                                 'destination': {'ceph_pool_name': args.destination_ceph_cinder_pool_name,
                                                 'volume_id': i_dst_volume.id}}
-            clib.migrate_rbd_image(args, i_volume_mapping)
+            clib.migrate_rbd_images(args, [i_volume_mapping])
             i_dst_volume_detail = destination_project_conn.block_storage.find_volume(i_dst_volume.id)
             lib.log_or_assert(args,
-                            f"H.05 Destination OpenStack volume available (name:{i_dst_volume_detail.name}, id:{i_dst_volume_detail.id})",
-                            i_dst_volume_detail.status == 'available')
+                              f"H.05 Destination OpenStack volume available (name:{i_dst_volume_detail.name}, id:{i_dst_volume_detail.id})",
+                              i_dst_volume_detail.status == 'available')
 
+
+BLOCK_STORAGE_VOLUME_MIGRATION_MODE_VMON_AFTER_SNAP="vmoff-snap-vmon-clone-flatten-copy-cleanup"
+BLOCK_STORAGE_VOLUME_MIGRATION_MODE_VMON_AFTER_CLEANUP="vmoff-snap-clone-flatten-copy-cleanup-vmon"
 
 # main() call (argument parsing)
 # -------------------------------------------------------------------------------------------------
@@ -364,6 +369,9 @@ if __name__ == "__main__":
                     help='(Optional) Reuse matching already migrated volumes whem migration steps failed after volume transfer (step G17).')
     AP.add_argument('--migrate-volume-snapshots', default=False, required=False, choices=lib.BOOLEAN_CHOICES,
                     help='(Optional) Migrate OpenStack volume snapshots.')
+    AP.add_argument('--block-storage-volume-migration-mode', default=BLOCK_STORAGE_VOLUME_MIGRATION_MODE_VMON_AFTER_SNAP, required=False,
+                    choices=[BLOCK_STORAGE_VOLUME_MIGRATION_MODE_VMON_AFTER_SNAP, BLOCK_STORAGE_VOLUME_MIGRATION_MODE_VMON_AFTER_CLEANUP],
+                    help='(Optional) Mode which determines order of steps performed during volume migration (steps G.05-G.17, F34).')
 
     AP.add_argument('--validation-a-source-server-id', default=None, required=True,
                     help='For validation any server ID from source OpenStack project')

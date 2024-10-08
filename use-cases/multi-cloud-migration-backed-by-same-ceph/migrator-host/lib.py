@@ -1,27 +1,30 @@
 """ OpenStack project migrator library """
 
-import re
-import pprint
-import time
 import os
 import os.path
+import pprint
+import re
+import time
 
-import paramiko
 import openstack
-from keystoneauth1.identity import v3
+import paramiko
 from keystoneauth1 import session
+from keystoneauth1.identity import v3
 
 BOOLEAN_CHOICES = ["True", "true", "False", "false"]
 
-def wait_for_keypress(msg="Press Enter to continue..."):
+
+def wait_for_keypress():
     """ wait for enter keypress """
     return input("Press Enter to continue...")
+
 
 def get_resource_names_ids(resources):
     """ parses list of resource names/IDs separated by space of comma returned as list of strings or None """
     if isinstance(resources, str) and resources:
-        return resources.replace(","," ").split()
+        return resources.replace(",", " ").split()
     return None
+
 
 def trim_dict(dict_data, allowed_keys=None, denied_keys=None):
     """ transform input dictionary and filter its keys with allowed_keys and denied_keys sequences """
@@ -33,9 +36,11 @@ def trim_dict(dict_data, allowed_keys=None, denied_keys=None):
         return {i_key: dict_data[i_key] for i_key in dict_data if i_key not in int_denied_keys}
     return dict_data
 
+
 def executed_as_admin_user_in_ci():
     """ identity the script user within CI pipeline """
     return os.environ.get('GITLAB_USER_LOGIN') in ('246254', '252651', 'Jan.Krystof', 'moravcova', '469240', 'Josef.Nemec', '247801', '253466', '252985')
+
 
 def executed_in_ci():
     """ detect CI environment """
@@ -49,6 +54,7 @@ def get_ostack_project_names(project_name):
         return project_name.split('->', 1)
     return project_name, project_name
 
+
 def get_destination_subnet(source_subnet):
     """ LUT for networks """
     subnet_mapping = {
@@ -56,10 +62,11 @@ def get_destination_subnet(source_subnet):
 
         # group project internal network
         "group-project-network-subnet": "group-project-network-subnet"
-        }
-    if source_subnet in subnet_mapping.keys():
+    }
+    if source_subnet in subnet_mapping:
         return subnet_mapping[source_subnet]
     return None
+
 
 def get_destination_router(source_router):
     """ LUT for networks """
@@ -68,8 +75,8 @@ def get_destination_router(source_router):
 
         # group project internal network
         "router": "group-project-router"
-        }
-    if source_router in router_mapping.keys():
+    }
+    if source_router in router_mapping:
         return router_mapping[source_router]
     return None
 
@@ -79,9 +86,10 @@ def normalize_table_data_field(data_field):
     int_dict = {}
     i_name_key = '@name'
     for i_data_field_item in data_field:
-        i_value_key = [ i_k for i_k in i_data_field_item.keys() if i_k != i_name_key][0]
+        i_value_key = [i_k for i_k in i_data_field_item.keys() if i_k != i_name_key][0]
         int_dict[i_data_field_item[i_name_key]] = i_data_field_item[i_value_key]
     return int_dict
+
 
 def normalize_table_data(data):
     """ normalize whole table data """
@@ -90,19 +98,23 @@ def normalize_table_data(data):
         int_list.append(normalize_table_data_field(i_data_field['field']))
     return int_list
 
+
 def get_dst_secgroup_name(args, name=""):
     """ translate original secgroup name to destination one """
     return f"{args.destination_secgroup_name_prefix}{name}"
 
+
 def get_dst_resource_name(args, name=""):
     """ translate original name to destination one """
     return f"{args.destination_entity_name_prefix}{name}"
+
 
 def get_dst_resource_desc(args, desc="", fields=None):
     """ translate original description to destination one and fill in optional fields """
     if '{}' in args.destination_entity_description_suffix and fields:
         return f"{desc}{args.destination_entity_description_suffix.format(fields)}"
     return f"{desc}{args.destination_entity_description_suffix}"
+
 
 def get_openrc(file_handle):
     """ parse and return OpenRC file """
@@ -116,7 +128,7 @@ def get_openrc(file_handle):
 
 
 def get_ostack_connection(openrc_vars):
-    """ """
+    """ create a connection to a cloud and return the Connection object """
     auth_args = {
         'auth_url': openrc_vars.get('OS_AUTH_URL'),
         'username': openrc_vars.get('OS_USERNAME'),
@@ -137,45 +149,27 @@ def get_ostack_connection(openrc_vars):
     ostack_conn = openstack.connection.Connection(session=ostack_sess, **connection_args)
     return ostack_conn
 
+
 def get_ostack_project(ostack_connection, project_name):
+    """ return a project by name """
     project = None
     for i_project in ostack_connection.list_projects():
         if i_project.name == project_name:
             project = i_project
     return project
 
+
 def get_ostack_project_type(ostack_connection, project):
     """ detect project type, return 'group' / 'personal' / 'other' """
-    if project.name in [ i_user.name for i_user in ostack_connection.list_users() ]:
+    if project.name in [i_user.name for i_user in ostack_connection.list_users()]:
         return "personal"
     return "group"
 
-def get_ostack_project_security_groups(ostack_connection, project=None):
-    security_groups = []
-    if project:
-        for i_security_group in ostack_connection.network.security_groups():
-            if i_security_group.tenant_id == project.id:
-                security_groups.append(i_security_group)
-        return security_groups
-    return tuple(ostack_connection.network.security_groups())
 
-def get_ostack_project_keypairs(ostack_connection, project=None):
-    return ostack_connection.list_keypairs()
-def get_ostack_project_keypairs2(ostack_connection, project=None):
-    return list(ostack_connection.compute.keypairs())
-
-
-def get_ostack_project_servers(ostack_connection, project=None):
+def get_ostack_project_servers(ostack_connection):
+    """ return list of project servers """
     return tuple(ostack_connection.compute.servers())
 
-def get_ostack_project_volumes(ostack_connection, project=None):
-    return ostack_connection.block_store.volumes()
-
-def get_resource_details(resources):
-    """ inspect resources """
-    for i_resource in resources:
-        print(i_resource)
-        pprint.pprint(i_resource)
 
 def remote_cmd_exec(hostname, username, key_filename, command):
     """ executes remote command, returs stdout, stderr and exit-code or Exception """
@@ -183,7 +177,6 @@ def remote_cmd_exec(hostname, username, key_filename, command):
     ssh_client = paramiko.SSHClient()
     # Automatically add untrusted hosts
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ecode = None
 
     try:
         # Connect to the remote host
@@ -191,7 +184,7 @@ def remote_cmd_exec(hostname, username, key_filename, command):
         ssh_client.connect(hostname, username=username, pkey=pkey, look_for_keys=False)
 
         # Execute the command, read the output and close
-        stdin, stdout, stderr = ssh_client.exec_command(command)
+        _, stdout, stderr = ssh_client.exec_command(command)
         output = stdout.read().decode().strip()
         error = stderr.read().decode().strip()
         ecode = stdout.channel.recv_exit_status()
@@ -208,8 +201,6 @@ def assert_entity_ownership(entities, project):
     """ assert that all supplied entities belong to given project """
     for i_entity in entities:
         assert i_entity.project_id == project.id, f"Entity belongs to expected project (id: {project.id})"
-
-
 
 
 def log_or_assert(args, msg, condition, trace_details=None, msg_guidance=''):
@@ -236,6 +227,7 @@ def wait_for_ostack_server_status(ostack_connection, server_name_or_id, server_s
 
     return int_server_status
 
+
 def wait_for_ostack_volume_status(ostack_connection, volume_name_or_id, volume_status, timeout=300):
     """ wait for volume getting expected state """
     int_start_timestamp = time.time()
@@ -248,6 +240,5 @@ def wait_for_ostack_volume_status(ostack_connection, volume_name_or_id, volume_s
         if int_volume_status == volume_status:
             break
         time.sleep(10)
-
 
     return int_volume_status
