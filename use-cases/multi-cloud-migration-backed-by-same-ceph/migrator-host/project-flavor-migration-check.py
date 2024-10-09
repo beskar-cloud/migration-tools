@@ -26,6 +26,7 @@ import yaml
 import lib
 import olib
 
+
 def main(args):
     """ main project migration loop """
     # connect to source cloud
@@ -53,21 +54,20 @@ def main(args):
     source_project_conn = lib.get_ostack_connection(source_migrator_openrc | {'OS_PROJECT_NAME': source_project.name})
 
     # get source/destination entities in the project
-    source_project_servers = lib.get_ostack_project_servers(source_project_conn, source_project)
+    source_project_servers = lib.get_ostack_project_servers(source_project_conn)
     args.logger.info("E.01 Source OpenStack cloud servers received")
     lib.assert_entity_ownership(source_project_servers, source_project)
     args.logger.info(f"E.02 Source OpenStack cloud project has {len(source_project_servers)} servers.")
 
     args.logger.info("F.00 Main looping started")
-    args.logger.info(f"F.00 Source VM servers: {[ i_source_server.name for i_source_server in source_project_servers]}")
-
+    args.logger.info(f"F.00 Source VM servers: {[i_source_server.name for i_source_server in source_project_servers]}")
 
     source_flavor_names = []
     destination_expected_flavor_names = []
     for i_source_server in source_project_servers:
         i_source_server_detail = source_project_conn.compute.find_server(i_source_server.id)
 
-        args.logger.info(f"F.01 server evaluation started - name:{i_source_server_detail.name}, " \
+        args.logger.info(f"F.01 server evaluation started - name:{i_source_server_detail.name}, "
                          f"flavor: {i_source_server_detail.flavor.name}, addresses: {i_source_server_detail.addresses}, status: {i_source_server_detail.status}")
 
         # flavor detection
@@ -89,7 +89,7 @@ def main(args):
             continue
         destination_expected_nonpublic_flavor_names.append(i_dst_flavor.name)
 
-    cld_entities_structure = {'acls' : {'flavors': destination_expected_nonpublic_flavor_names}}
+    cld_entities_structure = {'acls': {'flavors': destination_expected_nonpublic_flavor_names}}
     print(yaml.dump(cld_entities_structure))
 
 
